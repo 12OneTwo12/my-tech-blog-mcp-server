@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "my-tech-blog": {
+      "command": "/Users/jeongjeong-il/Desktop/projects/my-tech-blog-mcp-server/venv/bin/python",
+      "args": [
+        "/Users/jeongjeong-il/Desktop/projects/my-tech-blog-mcp-server/run.py"
+      ]
+    }
+  }
+}
