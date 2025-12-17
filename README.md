@@ -33,6 +33,8 @@ LLM은 제 블로그에서 관련 경험을 찾아서, **내가 과거에 겪었
 
 같은 실수를 반복하지 않고, 과거의 내가 쌓아둔 지식을 현재 개발에 즉시 활용하며, 일관된 개발 규칙을 유지할 수 있게 만드는 것. 그것이 이 MCP 서버를 만든 이유입니다.
 
+<img width="701" height="849" alt="image" src="https://github.com/user-attachments/assets/59e4a407-d4a0-40ea-ae57-7eaeaccb37e8" />
+
 ## 주요 기능
 
 ### 📚 Resources (리소스)
