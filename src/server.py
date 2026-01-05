@@ -5,7 +5,7 @@ Built with FastMCP for the fastest, most Pythonic MCP server development.
 
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Literal, Optional
 
 from fastmcp import FastMCP
@@ -339,8 +339,6 @@ async def get_recent_posts(days: int = 30, category: Optional[str] = None) -> st
     Returns:
         Recent posts sorted by date
     """
-    from datetime import timedelta
-
     end_date = datetime.now()
     start_date = end_date - timedelta(days=days)
 

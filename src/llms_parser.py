@@ -21,24 +21,34 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 
+def _safe_int(env_var: str, default: int) -> int:
+    """Safely parse integer from environment variable."""
+    try:
+        return int(os.getenv(env_var, str(default)))
+    except ValueError:
+        logger.warning(f"Invalid integer for {env_var}, using default: {default}")
+        return default
+
+
+def _safe_float(env_var: str, default: float) -> float:
+    """Safely parse float from environment variable."""
+    try:
+        return float(os.getenv(env_var, str(default)))
+    except ValueError:
+        logger.warning(f"Invalid float for {env_var}, using default: {default}")
+        return default
+
+
 @dataclass
 class ParserConfig:
     """Configuration for the LLMS parser."""
 
     base_url: str = field(default_factory=lambda: os.getenv("BLOG_BASE_URL", "https://jeongil.dev"))
     llms_path: str = field(default_factory=lambda: os.getenv("BLOG_LLMS_PATH", "/ko/llms.txt"))
-    cache_ttl_minutes: int = field(
-        default_factory=lambda: int(os.getenv("BLOG_CACHE_TTL_MINUTES", "60"))
-    )
-    http_timeout: float = field(
-        default_factory=lambda: float(os.getenv("BLOG_HTTP_TIMEOUT", "30.0"))
-    )
-    http_max_retries: int = field(
-        default_factory=lambda: int(os.getenv("BLOG_HTTP_MAX_RETRIES", "3"))
-    )
-    http_retry_delay: float = field(
-        default_factory=lambda: float(os.getenv("BLOG_HTTP_RETRY_DELAY", "1.0"))
-    )
+    cache_ttl_minutes: int = field(default_factory=lambda: _safe_int("BLOG_CACHE_TTL_MINUTES", 60))
+    http_timeout: float = field(default_factory=lambda: _safe_float("BLOG_HTTP_TIMEOUT", 30.0))
+    http_max_retries: int = field(default_factory=lambda: _safe_int("BLOG_HTTP_MAX_RETRIES", 3))
+    http_retry_delay: float = field(default_factory=lambda: _safe_float("BLOG_HTTP_RETRY_DELAY", 1.0))
 
     @property
     def llms_url(self) -> str:
@@ -174,9 +184,13 @@ class BM25SearchEngine:
             tf = term_freqs[term]
             idf = self._idf(term)
 
-            # BM25 scoring formula
+            # BM25 scoring formula (guard against division by zero)
             numerator = tf * (self.k1 + 1)
-            denominator = tf + self.k1 * (1 - self.b + self.b * doc_length / self._avg_doc_length)
+            if self._avg_doc_length > 0:
+                length_norm = doc_length / self._avg_doc_length
+            else:
+                length_norm = 1.0  # No normalization if avg is 0
+            denominator = tf + self.k1 * (1 - self.b + self.b * length_norm)
             score += idf * (numerator / denominator)
 
         return score, matched_terms
@@ -619,10 +633,13 @@ class LLMSParser:
             else [s for s in content.all_sections if s.category == category]
         )
 
-        # Filter by date
+        # Filter by date (only include posts WITH dates when date filtering is requested)
         filtered = []
         for section in sections:
-            if section.published_date:
+            # If date filters are specified, only include posts with dates
+            if start_date or end_date:
+                if not section.published_date:
+                    continue  # Skip posts without dates when filtering by date
                 if start_date and section.published_date < start_date:
                     continue
                 if end_date and section.published_date > end_date:
