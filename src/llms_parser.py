@@ -64,10 +64,11 @@ class BlogSection(BaseModel):
     """Represents a section in the blog with rich metadata."""
 
     title: str
-    content: str
+    content: str  # Summary from llms.txt
     category: str  # main category: documentation, tech_blog, reflections, trends
     subcategory: Optional[str] = None  # subcategory: backend, infrastructure, etc.
-    url: Optional[str] = None
+    url: Optional[str] = None  # Human-readable URL (without .md)
+    md_url: Optional[str] = None  # Direct URL to .md file for full content
     published_date: Optional[datetime] = None
     tags: List[str] = Field(default_factory=list)
 
@@ -351,17 +352,26 @@ class LLMSParser:
                     continue
         return None
 
-    def _extract_url(self, text: str) -> Optional[str]:
-        """Extract URL from markdown link or path."""
+    def _extract_url(self, text: str) -> Tuple[Optional[str], Optional[str]]:
+        """Extract URL from markdown link or path.
+
+        Returns:
+            Tuple of (human_readable_url, md_url)
+        """
         # Pattern: [text](/path/to/article.md)
         match = re.search(r"\[([^\]]+)\]\((/[^)]+)\)", text)
         if match:
             path = match.group(2)
-            # Convert .md path to full URL
-            if path.endswith(".md"):
-                path = path.replace("/index.md", "").replace(".md", "")
-            return f"{self.config.base_url}{path}"
-        return None
+            md_url = f"{self.config.base_url}{path}"  # Full URL to .md file
+
+            # Convert .md path to human-readable URL
+            human_path = path
+            if human_path.endswith(".md"):
+                human_path = human_path.replace("/index.md", "").replace(".md", "")
+            human_url = f"{self.config.base_url}{human_path}"
+
+            return human_url, md_url
+        return None, None
 
     def _extract_subcategory(self, section_context: str) -> Optional[str]:
         """Extract subcategory from section context."""
@@ -397,17 +407,19 @@ class LLMSParser:
         current_section: Optional[str] = None
         current_content: List[str] = []
         current_url: Optional[str] = None
+        current_md_url: Optional[str] = None
 
         def save_section():
             """Helper to save the current section."""
-            nonlocal current_content, current_section, current_url
+            nonlocal current_content, current_section, current_url, current_md_url
 
             if current_section and current_content and current_main_category:
                 content_text = "\n".join(current_content).strip()
 
                 # Extract metadata
                 pub_date = self._extract_date(content_text)
-                url = current_url or self._extract_url(content_text)
+                if not current_url:
+                    current_url, current_md_url = self._extract_url(content_text)
                 subcategory = self._extract_subcategory(
                     f"{current_sub_context or ''} {current_section}"
                 )
@@ -417,7 +429,8 @@ class LLMSParser:
                     content=content_text,
                     category=current_main_category,
                     subcategory=subcategory,
-                    url=url,
+                    url=current_url,
+                    md_url=current_md_url,
                     published_date=pub_date,
                 )
 
@@ -434,6 +447,7 @@ class LLMSParser:
                 current_content = []
                 current_section = None
                 current_url = None
+                current_md_url = None
 
         for line in lines:
             line_stripped = line.strip()
@@ -478,7 +492,7 @@ class LLMSParser:
                 title_match = re.match(r"- \[([^\]]+)\]", line_stripped)
                 if title_match:
                     current_section = title_match.group(1)
-                    current_url = self._extract_url(line_stripped)
+                    current_url, current_md_url = self._extract_url(line_stripped)
                     # Rest of the line is content start
                     rest_match = re.search(r"\):\s*(.+)", line_stripped)
                     if rest_match:
@@ -665,3 +679,58 @@ class LLMSParser:
                 "http_max_retries": self.config.http_max_retries,
             },
         }
+
+    async def fetch_post_content(self, section: BlogSection) -> str:
+        """Fetch full content of a blog post from its .md URL.
+
+        Args:
+            section: BlogSection with md_url
+
+        Returns:
+            Full markdown content of the post
+        """
+        if not section.md_url:
+            raise ValueError(f"No md_url available for section: {section.title}")
+
+        logger.info(f"Fetching full content from: {section.md_url}")
+        return await self._http_client.get(section.md_url)
+
+    async def get_post_by_title(self, title: str) -> Optional[BlogSection]:
+        """Find a post by its title (partial match supported).
+
+        Args:
+            title: Title to search for (case-insensitive partial match)
+
+        Returns:
+            Matching BlogSection or None
+        """
+        content = await self.get_content()
+        title_lower = title.lower()
+
+        for section in content.all_sections:
+            if title_lower in section.title.lower():
+                return section
+
+        return None
+
+    async def get_full_post_content(self, title: str) -> Optional[str]:
+        """Get full content of a post by title.
+
+        Args:
+            title: Title to search for (partial match supported)
+
+        Returns:
+            Full markdown content or None if not found
+        """
+        section = await self.get_post_by_title(title)
+        if not section:
+            return None
+
+        if not section.md_url:
+            return f"# {section.title}\n\n{section.content}\n\n(Full content URL not available)"
+
+        try:
+            return await self.fetch_post_content(section)
+        except Exception as e:
+            logger.error(f"Failed to fetch full content for {section.title}: {e}")
+            return f"# {section.title}\n\n{section.content}\n\n(Failed to fetch full content: {e})"

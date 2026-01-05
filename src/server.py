@@ -383,6 +383,120 @@ async def health_check() -> str:
     return json.dumps(status, indent=2, default=str)
 
 
+@mcp.tool()
+async def get_post_content(title: str) -> str:
+    """Get the FULL content of a blog post by title.
+
+    This fetches the complete markdown content from the blog,
+    not just the summary from llms.txt.
+
+    Args:
+        title: Title of the post to retrieve (partial match supported, case-insensitive)
+               e.g., '쿠버네티스 도입기', 'JVM Cold Start', 'CKA'
+
+    Returns:
+        Full markdown content of the matching post
+    """
+    # First, find the post
+    section = await parser.get_post_by_title(title)
+
+    if not section:
+        # Try searching if exact match not found
+        results = await parser.search_all(title, top_k=1)
+        if results:
+            section = results[0].section
+        else:
+            return f"No post found matching: '{title}'"
+
+    # Show what we found
+    response_parts = [f"# Found: {section.title}\n"]
+    if section.url:
+        response_parts.append(f"URL: {section.url}\n")
+    if section.published_date:
+        response_parts.append(f"Published: {section.published_date.strftime('%Y-%m-%d')}\n")
+    if section.subcategory:
+        response_parts.append(f"Category: {section.subcategory}\n")
+    response_parts.append("\n---\n\n")
+
+    # Fetch full content
+    if not section.md_url:
+        response_parts.append("(Full content URL not available, showing summary)\n\n")
+        response_parts.append(section.content)
+        return "\n".join(response_parts)
+
+    try:
+        full_content = await parser.fetch_post_content(section)
+        response_parts.append(full_content)
+    except Exception as e:
+        logger.error(f"Failed to fetch full content: {e}")
+        response_parts.append(f"(Failed to fetch full content: {e})\n\n")
+        response_parts.append("Summary:\n")
+        response_parts.append(section.content)
+
+    return "\n".join(response_parts)
+
+
+@mcp.tool()
+async def list_all_posts() -> str:
+    """List all available blog posts with their titles and URLs.
+
+    Useful for browsing what posts are available before fetching full content.
+
+    Returns:
+        List of all posts organized by category
+    """
+    content = await parser.get_content()
+
+    response_parts = ["# All Available Posts\n"]
+
+    # Documentation
+    if content.documentation:
+        response_parts.append(f"\n## Documentation ({len(content.documentation)} docs)\n")
+        for section in content.documentation:
+            response_parts.append(f"- **{section.title}**")
+            if section.url:
+                response_parts.append(f" ([link]({section.url}))")
+            response_parts.append("\n")
+
+    # Tech Blog
+    if content.tech_blog:
+        response_parts.append(f"\n## Tech Blog ({len(content.tech_blog)} posts)\n")
+        for section in sorted(
+            content.tech_blog,
+            key=lambda s: s.published_date or datetime.min,
+            reverse=True,
+        ):
+            response_parts.append(f"- **{section.title}**")
+            if section.published_date:
+                response_parts.append(f" ({section.published_date.strftime('%Y-%m-%d')})")
+            if section.url:
+                response_parts.append(f" ([link]({section.url}))")
+            response_parts.append("\n")
+
+    # Reflections
+    if content.reflections:
+        response_parts.append(f"\n## Reflections ({len(content.reflections)} posts)\n")
+        for section in content.reflections:
+            response_parts.append(f"- **{section.title}**")
+            if section.url:
+                response_parts.append(f" ([link]({section.url}))")
+            response_parts.append("\n")
+
+    # Trends
+    if content.trends:
+        response_parts.append(f"\n## Trends ({len(content.trends)} posts)\n")
+        for section in content.trends:
+            response_parts.append(f"- **{section.title}**")
+            if section.url:
+                response_parts.append(f" ([link]({section.url}))")
+            response_parts.append("\n")
+
+    total = len(content.all_sections)
+    response_parts.append(f"\n---\n**Total: {total} posts**")
+
+    return "\n".join(response_parts)
+
+
 # ============================================================================
 # SERVER ENTRY POINT
 # ============================================================================
