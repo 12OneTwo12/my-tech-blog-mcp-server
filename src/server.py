@@ -3,22 +3,29 @@
 Built with FastMCP for the fastest, most Pythonic MCP server development.
 """
 
+import json
 import logging
-from typing import Literal
+from datetime import datetime
+from typing import Literal, Optional
 
 from fastmcp import FastMCP
 
-from llms_parser import LLMSParser
+from llms_parser import LLMSParser, ParserConfig
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
 logger = logging.getLogger(__name__)
 
 # Initialize FastMCP server
 mcp = FastMCP("My Tech Blog")
 
-# Initialize parser
-parser = LLMSParser()
+# Initialize parser with config
+config = ParserConfig()
+parser = LLMSParser(config=config)
+
+logger.info(f"Initialized parser with URL: {config.llms_url}")
 
 
 # ============================================================================
@@ -99,26 +106,29 @@ async def get_tech_blog_summary() -> str:
 
 
 @mcp.tool()
-async def search_documentation(query: str) -> str:
+async def search_documentation(query: str, top_k: int = 10) -> str:
     """Search for specific topics in documentation and development guidelines.
 
     Use this when you need to find coding conventions, architectural patterns,
-    Git workflows, or development rules.
+    Git workflows, or development rules. Uses BM25 ranking for relevance.
 
     Args:
         query: Search query (e.g., 'git convention', 'TDD', 'kubernetes', 'API design')
+        top_k: Maximum number of results to return (default: 10)
 
     Returns:
-        Search results with matching documentation sections
+        Search results with matching documentation sections, ranked by relevance
     """
-    results = await parser.search_documentation(query)
+    results = await parser.search_documentation(query, top_k=top_k)
 
     if not results:
         return f"No documentation found for query: '{query}'"
 
-    response_parts = [f"# Documentation Search Results for '{query}'\n"]
-    for section in results:
-        response_parts.append(f"\n## {section.title}\n")
+    response_parts = [f"# Documentation Search Results for '{query}' (Top {len(results)})\n"]
+    for idx, section in enumerate(results, 1):
+        response_parts.append(f"\n## {idx}. {section.title}\n")
+        if section.url:
+            response_parts.append(f"URL: {section.url}\n")
         response_parts.append(section.content)
         response_parts.append("\n---\n")
 
@@ -126,26 +136,33 @@ async def search_documentation(query: str) -> str:
 
 
 @mcp.tool()
-async def search_experience(query: str) -> str:
+async def search_experience(query: str, top_k: int = 10) -> str:
     """Search for past experiences and real-world problem-solving stories.
 
     Use this when you need to know how specific technical challenges
-    were handled in the past.
+    were handled in the past. Uses BM25 ranking for relevance.
 
     Args:
         query: Search query (e.g., 'kubernetes migration', 'database replication', 'MSA transition')
+        top_k: Maximum number of results to return (default: 10)
 
     Returns:
-        Search results with matching tech blog posts and experiences
+        Search results with matching tech blog posts and experiences, ranked by relevance
     """
-    results = await parser.search_tech_blog(query)
+    results = await parser.search_tech_blog(query, top_k=top_k)
 
     if not results:
         return f"No experiences found for query: '{query}'"
 
-    response_parts = [f"# Experience Search Results for '{query}'\n"]
-    for section in results:
-        response_parts.append(f"\n## {section.title}\n")
+    response_parts = [f"# Experience Search Results for '{query}' (Top {len(results)})\n"]
+    for idx, section in enumerate(results, 1):
+        response_parts.append(f"\n## {idx}. {section.title}\n")
+        if section.url:
+            response_parts.append(f"URL: {section.url}\n")
+        if section.published_date:
+            response_parts.append(f"Published: {section.published_date.strftime('%Y-%m-%d')}\n")
+        if section.subcategory:
+            response_parts.append(f"Category: {section.subcategory}\n")
         response_parts.append(section.content)
         response_parts.append("\n---\n")
 
@@ -154,32 +171,40 @@ async def search_experience(query: str) -> str:
 
 @mcp.tool()
 async def get_category_posts(
-    category: Literal["backend", "infrastructure", "architecture", "culture"]
+    category: Literal[
+        "backend", "infrastructure", "architecture", "culture", "reflection", "trends"
+    ],
 ) -> str:
     """Get all posts from a specific tech blog category.
 
     Useful for browsing experiences by topic area.
 
     Args:
-        category: Blog category to retrieve (backend, infrastructure, architecture, or culture)
+        category: Blog category to retrieve
 
     Returns:
-        All posts from the specified category
+        All posts from the specified category with metadata
     """
     content = await parser.get_content()
 
-    # Filter by category
     filtered_sections = [
-        section for section in content.tech_blog
-        if category in section.category.lower() or category in section.title.lower()
+        section
+        for section in content.all_sections
+        if section.subcategory == category or category in (section.category or "").lower()
     ]
 
     if not filtered_sections:
         return f"No posts found in category: '{category}'"
 
-    response_parts = [f"# Tech Blog Posts - {category.title()} Category\n"]
-    for section in filtered_sections:
-        response_parts.append(f"\n## {section.title}\n")
+    response_parts = [
+        f"# Tech Blog Posts - {category.title()} Category ({len(filtered_sections)} posts)\n"
+    ]
+    for idx, section in enumerate(filtered_sections, 1):
+        response_parts.append(f"\n## {idx}. {section.title}\n")
+        if section.url:
+            response_parts.append(f"URL: {section.url}\n")
+        if section.published_date:
+            response_parts.append(f"Published: {section.published_date.strftime('%Y-%m-%d')}\n")
         response_parts.append(section.content)
         response_parts.append("\n---\n")
 
@@ -265,11 +290,107 @@ Please help me review past architectural decisions and experiences:
 Use both search_documentation and search_experience tools."""
 
 
+@mcp.tool()
+async def search_all(query: str, top_k: int = 10) -> str:
+    """Search across ALL blog content (documentation, tech blog, reflections, trends).
+
+    Most comprehensive search - searches everything with BM25 ranking.
+
+    Args:
+        query: Search query
+        top_k: Maximum number of results to return (default: 10)
+
+    Returns:
+        Ranked search results from all content with relevance scores
+    """
+    results = await parser.search_all(query, top_k=top_k)
+
+    if not results:
+        return f"No results found for query: '{query}'"
+
+    response_parts = [f"# Global Search Results for '{query}' (Top {len(results)})\n"]
+    for idx, result in enumerate(results, 1):
+        section = result.section
+        response_parts.append(f"\n## {idx}. {section.title} [Score: {result.score:.2f}]\n")
+        response_parts.append(f"Category: {section.category}")
+        if section.subcategory:
+            response_parts.append(f" > {section.subcategory}")
+        response_parts.append("\n")
+        if section.url:
+            response_parts.append(f"URL: {section.url}\n")
+        if section.published_date:
+            response_parts.append(f"Published: {section.published_date.strftime('%Y-%m-%d')}\n")
+        if result.matched_terms:
+            response_parts.append(f"Matched terms: {', '.join(set(result.matched_terms))}\n")
+        response_parts.append(f"\n{section.content}\n")
+        response_parts.append("\n---\n")
+
+    return "\n".join(response_parts)
+
+
+@mcp.tool()
+async def get_recent_posts(days: int = 30, category: Optional[str] = None) -> str:
+    """Get recent blog posts from the last N days.
+
+    Args:
+        days: Number of days to look back (default: 30)
+        category: Optional category filter (documentation, tech_blog, reflections, trends)
+
+    Returns:
+        Recent posts sorted by date
+    """
+    from datetime import timedelta
+
+    end_date = datetime.now()
+    start_date = end_date - timedelta(days=days)
+
+    posts = await parser.get_posts_by_date(
+        start_date=start_date, end_date=end_date, category=category
+    )
+
+    if not posts:
+        return f"No posts found in the last {days} days"
+
+    response_parts = [f"# Recent Posts (Last {days} Days)\n"]
+    if category:
+        response_parts[0] = f"# Recent Posts in {category} (Last {days} Days)\n"
+
+    response_parts.append(f"Found {len(posts)} posts\n")
+
+    for idx, section in enumerate(posts, 1):
+        response_parts.append(f"\n## {idx}. {section.title}\n")
+        if section.published_date:
+            response_parts.append(f"Published: {section.published_date.strftime('%Y-%m-%d')}\n")
+        if section.subcategory:
+            response_parts.append(f"Category: {section.subcategory}\n")
+        if section.url:
+            response_parts.append(f"URL: {section.url}\n")
+        preview = section.content[:300].strip()
+        if len(section.content) > 300:
+            preview += "..."
+        response_parts.append(f"\n{preview}\n")
+        response_parts.append("\n---\n")
+
+    return "\n".join(response_parts)
+
+
+@mcp.tool()
+async def health_check() -> str:
+    """Check the health status of the MCP server and parser.
+
+    Returns:
+        JSON health status including cache state and configuration
+    """
+    status = await parser.get_health_status()
+    return json.dumps(status, indent=2, default=str)
+
+
 # ============================================================================
 # SERVER ENTRY POINT
 # ============================================================================
 
 if __name__ == "__main__":
     logger.info("Starting My Tech Blog MCP Server...")
-    logger.info("Serving content from: https://jeongil.dev/ko/llms.txt")
+    logger.info(f"Serving content from: {config.llms_url}")
+    logger.info(f"Cache TTL: {config.cache_ttl_minutes} minutes")
     mcp.run()

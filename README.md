@@ -42,18 +42,54 @@ LLM은 제 블로그에서 관련 경험을 찾아서, **내가 과거에 겪었
 - `blog://documentation` - 개발 가이드라인 및 컨벤션
 - `blog://tech-blog` - 실무 경험 및 기술 블로그 포스트
 - `blog://documentation/summary` - 문서 요약
-- `blog://tech-blog/summary` - 블로그 포스트 요약
+- `blog://tech-blog/summary` - 블로그 포스트 요약 (메타데이터 포함)
 
 ### 🛠️ Tools (도구)
-- `search_documentation(query)` - 개발 가이드라인 검색
-- `search_experience(query)` - 과거 경험 검색
+
+#### 🔍 검색 도구 (BM25 Ranking)
+- `search_all(query, top_k=10)` - **전체 컨텐츠 통합 검색** (가장 강력한 검색)
+- `search_documentation(query, top_k=10)` - 개발 가이드라인 검색
+- `search_experience(query, top_k=10)` - 과거 경험 검색
 - `get_category_posts(category)` - 카테고리별 포스트 조회
+
+#### 📅 시간 기반 도구
+- `get_recent_posts(days=30, category=None)` - 최근 N일간 포스트 조회
+
+#### ⚙️ 관리 도구
 - `refresh_content()` - 캐시된 콘텐츠 새로고침
+- `health_check()` - 서버 상태 확인
 
 ### 💬 Prompts (프롬프트 템플릿)
 - `check_past_experience` - 과거 유사 문제 해결 경험 조회
 - `get_development_guideline` - 특정 개발 가이드라인 조회
 - `review_architecture_decision` - 아키텍처 결정 검토
+
+### ✨ 2025 베스트 프랙티스 개선 사항
+
+#### 🚀 BM25 시맨틱 검색
+- **기존**: 단순 substring 검색
+- **개선**: BM25 알고리즘 기반 관련도 점수 랭킹
+- **효과**: 검색 품질 대폭 향상, 한글/영어 모두 지원
+
+#### 🔄 TTL 기반 캐싱
+- **기존**: 메모리 캐시만 존재, 만료 없음
+- **개선**: 설정 가능한 TTL (기본 60분)
+- **효과**: 최신 콘텐츠 자동 갱신, 메모리 효율성
+
+#### 🛡️ 회복 탄력적 HTTP 클라이언트
+- **기존**: 에러 시 즉시 실패
+- **개선**: 재시도 로직 + 지수 백오프 + Circuit Breaker
+- **효과**: 네트워크 장애 복원력 향상
+
+#### 📊 풍부한 메타데이터
+- **기존**: 제목과 내용만 파싱
+- **개선**: 발행일, URL, 카테고리, 태그 자동 추출
+- **효과**: 시간 기반 필터링, 정확한 분류
+
+#### ⚙️ 환경 변수 설정
+- **기존**: 하드코딩된 URL
+- **개선**: 모든 설정을 환경 변수로 제어 가능
+- **효과**: 다른 블로그/환경에도 쉽게 적용
 
 ## 설치 방법
 
@@ -80,6 +116,25 @@ claude mcp list
 
 # my-tech-blog 서버가 ✓ Connected로 표시되어야 함
 ```
+
+### 환경 변수 설정 (선택사항)
+
+`.env` 파일을 생성하여 설정을 커스터마이징할 수 있습니다:
+
+```bash
+cp .env.example .env
+```
+
+**사용 가능한 환경 변수:**
+
+| 변수 | 기본값 | 설명 |
+|------|--------|------|
+| `BLOG_BASE_URL` | `https://jeongil.dev` | 블로그 기본 URL |
+| `BLOG_LLMS_PATH` | `/ko/llms.txt` | llms.txt 경로 |
+| `BLOG_CACHE_TTL_MINUTES` | `60` | 캐시 유효 시간 (분) |
+| `BLOG_HTTP_TIMEOUT` | `30.0` | HTTP 요청 타임아웃 (초) |
+| `BLOG_HTTP_MAX_RETRIES` | `3` | HTTP 재시도 최대 횟수 |
+| `BLOG_HTTP_RETRY_DELAY` | `1.0` | 재시도 지연 시간 (초) |
 
 ### 수동 설치
 
@@ -171,18 +226,22 @@ my-tech-blog-mcp-server/
 
 ### 2025년 베스트 프랙티스 적용
 1. **FastMCP 사용**: 공식 MCP SDK 기반의 고수준 Pythonic API
-2. **자동 스키마 생성**: Docstring과 타입 힌트로 자동 문서화
-3. **모듈화된 구조**: Parser와 Server 로직 분리
-4. **타입 안정성**: Pydantic 모델을 통한 데이터 검증
-5. **캐싱**: llms.txt 콘텐츠 캐싱으로 성능 최적화
-6. **비동기 처리**: asyncio 기반 비동기 I/O
-7. **간결한 코드**: 데코레이터 패턴으로 50% 이상 코드 감소
+2. **BM25 검색 엔진**: 순수 Python 구현, 외부 의존성 없음
+3. **자동 스키마 생성**: Docstring과 타입 힌트로 자동 문서화
+4. **모듈화된 구조**: Parser와 Server 로직 분리
+5. **타입 안정성**: Pydantic 모델을 통한 데이터 검증
+6. **TTL 캐싱**: 자동 만료 및 갱신으로 메모리 효율성 확보
+7. **회복 탄력성**: 재시도 + Circuit Breaker로 안정성 확보
+8. **비동기 처리**: asyncio 기반 비동기 I/O
+9. **환경 변수**: 모든 설정을 외부화하여 유연성 확보
+10. **간결한 코드**: 데코레이터 패턴으로 50% 이상 코드 감소
 
 ### 확장 가능성
 - 새로운 Resource 추가 용이
 - Tool 함수 확장 가능
 - 커스텀 Prompt 템플릿 추가 가능
-- 다른 데이터 소스 통합 가능
+- 다른 데이터 소스 통합 가능 (환경 변수로 URL만 변경)
+- BM25 파라미터 튜닝 가능
 
 ## 개발
 

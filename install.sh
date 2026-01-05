@@ -123,18 +123,56 @@ else
 fi
 echo ""
 
-# Register MCP server with Claude Code
-echo "8. Claude Code에 MCP 서버 등록 중..."
+# Register ALL MCP servers from JSON config to Claude Code
+echo "8. Claude Code에 모든 MCP 서버 등록 중..."
 if command -v claude &> /dev/null; then
-    # Check if already registered
-    if claude mcp list 2>&1 | grep -q "my-tech-blog"; then
-        echo "   my-tech-blog 서버가 이미 등록되어 있습니다."
-        echo "   재등록 중..."
-        claude mcp remove my-tech-blog 2>/dev/null || true
-    fi
+    # JSON 파일에 있는 모든 서버를 claude mcp에 등록
+    python3 << PYTHON_SCRIPT
+import json
+import subprocess
+import sys
 
-    claude mcp add --transport stdio my-tech-blog -- "$CURRENT_DIR/venv/bin/python" "$CURRENT_DIR/run.py"
-    echo "   ✓ Claude Code MCP 서버 등록 완료"
+config_path = "$CLAUDE_CONFIG"
+
+try:
+    with open(config_path, 'r') as f:
+        config = json.load(f)
+
+    servers = config.get('mcpServers', {})
+    if not servers:
+        print("   ⚠ 등록할 MCP 서버가 없습니다.")
+        sys.exit(0)
+
+    print(f"   {len(servers)}개의 MCP 서버 등록 중...")
+
+    for server_name, server_config in servers.items():
+        # 기존 서버 제거 (있다면, 에러 무시)
+        subprocess.run(
+            ['claude', 'mcp', 'remove', server_name],
+            stderr=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL
+        )
+
+        # 서버 재등록
+        cmd = [
+            'claude', 'mcp', 'add',
+            '--transport', 'stdio',
+            server_name,
+            '--',
+            server_config['command']
+        ] + server_config['args']
+
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode == 0:
+            print(f"   ✓ {server_name} 등록 완료")
+        else:
+            print(f"   ✗ {server_name} 등록 실패: {result.stderr.strip()}")
+
+except Exception as e:
+    print(f"   ✗ 오류: {e}")
+    sys.exit(1)
+PYTHON_SCRIPT
+
 else
     echo "   ⚠ claude 명령어를 찾을 수 없습니다."
     echo "   수동으로 등록하세요:"
